@@ -73,12 +73,13 @@ marketcanvas/           Core package (1,200 lines)
   wcag.py                 WCAG 2.1 contrast ratio utilities
 mcp_server.py           FastMCP server (6 tools + 1 resource)
 demo.py                 Scripted demo + random agent contrast
-tests/                  108 unit tests
+tests/                  114 unit tests
   test_canvas.py          Canvas CRUD, hit-testing, serialization
   test_env.py             Gymnasium reset/step, both action modes
   test_reward.py          Reward scoring, diagnostics, edge cases
   test_perturbation.py    Perturbation-based reward validation
   test_wcag.py            WCAG contrast ratio calculations
+  test_mcp.py             MCP server integration tests
 output/                 Demo PNG outputs
 WRITEUP.md              Technical writeup (state/action/reward design, scaling)
 ```
