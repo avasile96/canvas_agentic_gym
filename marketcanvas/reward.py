@@ -41,9 +41,18 @@ class RewardCalculator:
         diagnostics: list[str] = []
         els = canvas.elements
 
-        # Overlap diagnostics
+        # Overlap diagnostics — skip background layers
+        canvas_area = canvas.width * canvas.height
+        bg_ids = set()
+        if len(els) > 1:
+            min_z = min(e.z_index for e in els)
+            bg_ids = {e.id for e in els if e.z_index == min_z and e.width * e.height >= canvas_area * 0.9}
         for i, a in enumerate(els):
+            if a.id in bg_ids:
+                continue
             for b in els[i + 1 :]:
+                if b.id in bg_ids:
+                    continue
                 if a.overlaps(b):
                     area = a.overlap_area(b)
                     diagnostics.append(
@@ -161,16 +170,26 @@ class RewardCalculator:
 
         n = len(els)
 
-        # Overlap penalty (25%)
-        overlap_score = 1.0
+        # Overlap penalty (25%) — ignore background layers (lowest z-index, ≥90% canvas area)
+        canvas_area = canvas.width * canvas.height
+        bg = set()
         if n > 1:
+            min_z = min(e.z_index for e in els)
+            bg = {id(e) for e in els if e.z_index == min_z and e.width * e.height >= canvas_area * 0.9}
+
+        overlap_score = 1.0
+        if n - len(bg) > 1:
             pairs = bad = 0
             for i in range(n):
+                if id(els[i]) in bg:
+                    continue
                 for j in range(i + 1, n):
+                    if id(els[j]) in bg:
+                        continue
                     pairs += 1
                     if els[i].overlaps(els[j]):
                         bad += 1
-            overlap_score = 1.0 - (bad / pairs)
+            overlap_score = 1.0 - (bad / pairs) if pairs else 1.0
 
         # Horizontal alignment to center (25%)
         cx_canvas = canvas.width / 2

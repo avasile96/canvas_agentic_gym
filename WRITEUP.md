@@ -30,11 +30,12 @@ The reward is a heuristic scalar in [-1.0, 1.0], computed statelessly from a can
 
 **Constraint satisfaction C (50%)** checks whether required elements are present. A prompt parser extracts requirements via keyword matching (e.g., "bold headline" → TextElement, "yellow CTA button" → ShapeElement with color hint). For each requirement, the best-matching canvas element is scored: 1.0 if type, keywords, and color all match; 0.75 for partial match; 0.5 for type-only. C is the average across requirements. Weight rationale: meeting the brief is twice as important as looking good or being readable — this prevents agents that produce aesthetically pleasing but off-prompt designs.
 
-**Aesthetics A (25%)** combines four sub-metrics:
-- *Overlap penalty (30%)*: fraction of non-overlapping element pairs. Penalizes layouts where elements stack incoherently.
-- *Horizontal alignment (30%)*: average per-element distance from canvas center, normalized. Rewards centered, professional layouts.
-- *Bounds check (20%)*: fraction of elements fully within the 800×600 canvas. Penalizes elements that overflow.
-- *Vertical spacing consistency (20%)*: deviation of inter-element vertical gaps from their mean. Rewards evenly spaced layouts.
+**Aesthetics A (25%)** combines five sub-metrics:
+- *Overlap penalty (25%)*: fraction of non-overlapping element pairs, ignoring background layers (lowest z-index elements covering ≥90% of canvas). Penalizes layouts where content elements stack incoherently.
+- *Horizontal alignment (25%)*: average per-element distance from canvas center, normalized. Rewards centered, professional layouts.
+- *Bounds check (15%)*: fraction of elements fully within the 800×600 canvas. Penalizes elements that overflow.
+- *Vertical spacing consistency (15%)*: deviation of inter-element vertical gaps from their mean. Rewards evenly spaced layouts.
+- *Visual hierarchy (20%)*: checks that the headline has the largest area among text elements, the CTA button meets minimum clickable size (80×30px), and primary elements are not dominated in area by secondary ones. Informed by DesignSense's design quality dimensions.
 
 **Accessibility X (25%)** evaluates WCAG 2.1 contrast ratios. For each text-bearing element (TextElement or ShapeElement with text), the text color is checked against the element's fill color. Score per element: 1.0 if ratio ≥ 4.5:1 (AA), 0.5 if ≥ 3.0:1 (A), 0.0 otherwise.
 
