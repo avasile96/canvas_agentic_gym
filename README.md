@@ -9,10 +9,10 @@ A minimalist 2D canvas RL environment for training LLM agents to design marketin
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"
 python demo.py          # build a banner, print reward progression, save PNG
 python demo.py --all    # also run random agent contrast
-pytest tests/           # 108 tests
+pytest tests/           # 114 tests
 ```
 
 ## Architecture
