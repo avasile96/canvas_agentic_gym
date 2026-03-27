@@ -35,6 +35,72 @@ class RewardCalculator:
             "accessibility": round(x, 4),
         }
 
+    def compute_with_diagnostics(self, canvas: Canvas) -> dict:
+        """Like compute() but adds per-element diagnostic messages for actionable LLM feedback."""
+        result = self.compute(canvas)
+        diagnostics: list[str] = []
+        els = canvas.elements
+
+        # Overlap diagnostics
+        for i, a in enumerate(els):
+            for b in els[i + 1 :]:
+                if a.overlaps(b):
+                    area = a.overlap_area(b)
+                    diagnostics.append(
+                        f"{a.id} overlaps {b.id} by {area:.0f}px\u00b2"
+                    )
+
+        # Contrast diagnostics
+        for el in els:
+            if isinstance(el, TextElement):
+                fg, bg = el.text_color, el.color
+                label = el.content[:20] or el.id
+            elif isinstance(el, ShapeElement) and el.text_content:
+                fg, bg = el.text_color, el.color
+                label = el.text_content[:20] or el.id
+            else:
+                continue
+            ratio = contrast_ratio(fg, bg)
+            if ratio < 4.5:
+                level = "below AA" if ratio >= 3.0 else "very low contrast"
+                diagnostics.append(f'"{label}" contrast ratio {ratio:.1f} \u2014 {level}')
+
+        # Centering diagnostics — only flag elements expected to be centered
+        canvas_cx = canvas.width / 2
+        for el in els:
+            is_headline = isinstance(el, TextElement) and el.bold
+            is_cta = isinstance(el, ShapeElement) and el.shape_kind.value == "button"
+            if not (is_headline or is_cta):
+                continue
+            cx = el.center()[0]
+            if abs(cx - canvas_cx) >= 10:
+                off = cx - canvas_cx
+                label = "headline" if is_headline else "CTA"
+                diagnostics.append(
+                    f"{el.id} ({label}) not horizontally centered (offset {off:+.0f}px)"
+                )
+
+        # Visual hierarchy diagnostics
+        text_els = [e for e in els if isinstance(e, TextElement)]
+        if len(text_els) >= 2:
+            headline = self._find_headline(text_els)
+            max_area = max(e.width * e.height for e in text_els)
+            if headline.width * headline.height < max_area * 0.9:
+                diagnostics.append(
+                    f"{headline.id} (headline) is not the largest text element — visual hierarchy broken"
+                )
+
+        for el in els:
+            if isinstance(el, ShapeElement) and el.shape_kind.value == "button":
+                if el.width < 80 or el.height < 30:
+                    diagnostics.append(
+                        f"CTA {el.id} too small ({el.width:.0f}\u00d7{el.height:.0f}px)"
+                        " \u2014 minimum 80\u00d730 recommended"
+                    )
+
+        result["diagnostics"] = diagnostics
+        return result
+
     # ── Constraint satisfaction (50%) ─────────────────────────────
 
     def _constraint_satisfaction(self, canvas: Canvas) -> float:
@@ -95,7 +161,7 @@ class RewardCalculator:
 
         n = len(els)
 
-        # Overlap penalty (30%)
+        # Overlap penalty (25%)
         overlap_score = 1.0
         if n > 1:
             pairs = bad = 0
@@ -106,14 +172,14 @@ class RewardCalculator:
                         bad += 1
             overlap_score = 1.0 - (bad / pairs)
 
-        # Horizontal alignment to center (30%)
+        # Horizontal alignment to center (25%)
         cx_canvas = canvas.width / 2
         align_score = sum(
             max(0.0, 1.0 - abs(el.center()[0] - cx_canvas) / cx_canvas)
             for el in els
         ) / n
 
-        # Bounds check (20%)
+        # Bounds check (15%)
         bounds_score = sum(
             1.0
             for el in els
@@ -123,7 +189,7 @@ class RewardCalculator:
             and el.y + el.height <= canvas.height
         ) / n
 
-        # Vertical spacing consistency (20%)
+        # Vertical spacing consistency (15%)
         spacing_score = 1.0
         if n >= 2:
             sorted_cy = sorted(el.center()[1] for el in els)
@@ -134,12 +200,66 @@ class RewardCalculator:
                     dev = sum(abs(g - avg) / avg for g in gaps) / len(gaps)
                     spacing_score = max(0.0, 1.0 - dev)
 
+        # Visual hierarchy (20%)
+        hierarchy_score = self._visual_hierarchy(canvas)
+
         return (
-            0.30 * overlap_score
-            + 0.30 * align_score
-            + 0.20 * bounds_score
-            + 0.20 * spacing_score
+            0.25 * overlap_score
+            + 0.25 * align_score
+            + 0.15 * bounds_score
+            + 0.15 * spacing_score
+            + 0.20 * hierarchy_score
         )
+
+    @staticmethod
+    def _find_headline(text_els: list[TextElement]) -> TextElement:
+        """Identify the headline: first bold text, or largest font."""
+        bold = [e for e in text_els if e.bold]
+        return bold[0] if bold else max(text_els, key=lambda e: e.font_size)
+
+    def _visual_hierarchy(self, canvas: Canvas) -> float:
+        """Score whether visual size/prominence matches semantic role from the prompt."""
+        els = canvas.elements
+        if len(els) < 2:
+            return 1.0
+
+        checks = hits = 0
+        text_els = [e for e in els if isinstance(e, TextElement)]
+        button_els = [
+            e for e in els if isinstance(e, ShapeElement) and e.shape_kind.value == "button"
+        ]
+
+        # Rule 1: Headline (bold or largest font) should be the largest-area text element.
+        if len(text_els) >= 2:
+            checks += 1
+            headline = self._find_headline(text_els)
+            max_area = max(e.width * e.height for e in text_els)
+            if headline.width * headline.height >= max_area * 0.9:
+                hits += 1
+
+        # Rule 2: CTA button should meet minimum clickable size (80×30px).
+        if button_els:
+            checks += 1
+            biggest = max(button_els, key=lambda e: e.width * e.height)
+            if biggest.width >= 80 and biggest.height >= 30:
+                hits += 1
+
+        # Rule 3: First required element type should not be dominated in area by later types.
+        reqs = self.constraints.required_elements
+        if len(reqs) >= 2:
+            primary_cls = _TYPE_CLS.get(reqs[0].element_type)
+            secondary_cls = _TYPE_CLS.get(reqs[1].element_type)
+            if primary_cls and secondary_cls and primary_cls is not secondary_cls:
+                primary_els = [e for e in els if isinstance(e, primary_cls)]
+                secondary_els = [e for e in els if isinstance(e, secondary_cls)]
+                if primary_els and secondary_els:
+                    checks += 1
+                    primary_max = max(e.width * e.height for e in primary_els)
+                    secondary_max = max(e.width * e.height for e in secondary_els)
+                    if primary_max >= secondary_max * 0.7:
+                        hits += 1
+
+        return hits / checks if checks > 0 else 1.0
 
     # ── Accessibility (25%) ───────────────────────────────────────
 

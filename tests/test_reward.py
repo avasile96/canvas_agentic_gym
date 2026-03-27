@@ -212,6 +212,50 @@ class TestAccessibility:
         assert calc.compute(c)["accessibility"] == 1.0
 
 
+# ── Reward: diagnostics ──────────────────────────────────────────
+
+
+class TestDiagnostics:
+    def test_diagnostics_reports_overlap(self):
+        calc = RewardCalculator(parse_prompt("headline"))
+        c = Canvas()
+        c.add_element(TextElement(id="a", x=0, y=0, width=200, height=100))
+        c.add_element(TextElement(id="b", x=50, y=50, width=200, height=100))
+        result = calc.compute_with_diagnostics(c)
+        assert any("overlaps" in d for d in result["diagnostics"])
+
+    def test_diagnostics_reports_low_contrast(self):
+        calc = RewardCalculator(parse_prompt("headline"))
+        c = Canvas()
+        c.add_element(
+            TextElement(id="t", content="Hi", text_color="#FEFEFE", color="#FFFFFF")
+        )
+        result = calc.compute_with_diagnostics(c)
+        assert any("contrast" in d for d in result["diagnostics"])
+
+    def test_diagnostics_clean_layout(self):
+        calc = RewardCalculator(parse_prompt("bold headline and button"))
+        c = Canvas()
+        c.add_element(
+            TextElement(
+                id="h", x=300, y=50, width=200, height=50,
+                content="Sale!", bold=True, text_color="#000000", color="#FFFFFF",
+                font_size=32,
+            )
+        )
+        c.add_element(
+            ShapeElement(
+                id="cta", x=300, y=150, width=200, height=50,
+                shape_kind=ShapeKind.button, color="#FFD700",
+                text_content="Buy", text_color="#000000",
+            )
+        )
+        result = calc.compute_with_diagnostics(c)
+        # Well-formed layout should produce no overlap or contrast diagnostics
+        assert not any("overlaps" in d for d in result["diagnostics"])
+        assert not any("contrast" in d for d in result["diagnostics"])
+
+
 # ── Reward: full pipeline ────────────────────────────────────────
 
 
