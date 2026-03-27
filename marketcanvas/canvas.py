@@ -174,5 +174,51 @@ class Canvas:
                 "element_count": len(self.elements),
             },
             "elements": elements_data,
+            "groups": self._semantic_groups(sorted_els),
             "selected_id": self._selected_id,
         }
+
+    def _semantic_groups(self, sorted_els: list) -> list[dict]:
+        """Group semantically related elements by type and spatial proximity."""
+        groups: list[dict] = []
+        assigned: set[str] = set()
+
+        # Pass 1: button shapes + any nearby text → call-to-action group
+        for el in sorted_els:
+            if el.id in assigned:
+                continue
+            if not (isinstance(el, ShapeElement) and el.shape_kind.value == "button"):
+                continue
+            cx, cy = el.center()
+            close_texts = [
+                other for other in sorted_els
+                if other.id not in assigned
+                and isinstance(other, TextElement)
+                and ((cx - other.center()[0]) ** 2 + (cy - other.center()[1]) ** 2) ** 0.5 < 80
+            ]
+            members = [el.id] + [o.id for o in close_texts]
+            for mid in members:
+                assigned.add(mid)
+            groups.append({"label": "call-to-action", "members": members})
+
+        # Pass 2: vertically close text elements → header group
+        for el in sorted_els:
+            if el.id in assigned or not isinstance(el, TextElement):
+                continue
+            _, cy = el.center()
+            nearby = [
+                other for other in sorted_els
+                if other.id != el.id
+                and other.id not in assigned
+                and isinstance(other, TextElement)
+                and abs(cy - other.center()[1]) < 80
+            ]
+            if nearby:
+                members = [el.id] + [o.id for o in nearby]
+                for mid in members:
+                    assigned.add(mid)
+                groups.append({"label": "header", "members": members})
+            else:
+                assigned.add(el.id)
+
+        return groups
